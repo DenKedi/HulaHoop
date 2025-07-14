@@ -1,0 +1,22 @@
+{
+    "experiment_config": {
+        "learning_rate": 5e-05,
+        "buffer_size": 200000,
+        "learning_starts": 10000,
+        "exploration_fraction": 0.2,
+        "exploration_initial_eps": 0.7,
+        "exploration_final_eps": 0.02,
+        "name": "DQN_starts_10000"
+    },
+    "evaluation_summary": {
+        "mean_reward_over_all_runs": 19.306929935432887,
+        "std_reward_over_all_runs": 124.09558597570341,
+        "mean_reward_per_run": [
+            266.0733147436148,
+            -42.42437130881527,
+            -44.58847868106224,
+            -38.84675811874101,
+            -43.67905695783189
+        ]
+    }
+}
