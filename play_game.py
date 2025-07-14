@@ -1,8 +1,6 @@
 import pygame
 import time
 from stable_baselines3 import DQN
-
-# Wir importieren die HulaHoopEnv-Klasse aus Ihrer Trainings-Datei.
 from train_agent import HulaHoopEnv
 
 
@@ -15,10 +13,8 @@ NUDGE_UP_POWER = -2.5
 INTERVENTION_THRESHOLD_STEPS = 20
 
 if __name__ == '__main__':
-    # 1. Erstelle die Spielumgebung im sichtbaren Modus
     env = HulaHoopEnv(render_mode="human")
 
-    # 2. Lade das trainierte Modell
     try:
         model = DQN.load("hula_dqn_model", env=env)
         print("Modell 'hula_dqn_model.zip' erfolgreich geladen.")
@@ -32,7 +28,6 @@ if __name__ == '__main__':
         print("Fehler: Die Datei 'hula_dqn_model.zip' wurde nicht gefunden.")
         exit()
 
-    # 3. Endlos-Schleife für kontinuierliches Spielen
     while True:
         obs, info = env.reset()
         done = False

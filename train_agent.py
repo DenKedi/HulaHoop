@@ -6,9 +6,11 @@ from collections import Counter
 import sys
 from stable_baselines3 import DQN
 from stable_baselines3.common.env_checker import check_env
-# NEUER IMPORT für die standardisierte Evaluierung
 from stable_baselines3.common.evaluation import evaluate_policy
 import time
+# Import für den Callback und zum Speichern von CSV-Dateien
+from stable_baselines3.common.callbacks import BaseCallback
+import os
 
 
 class HulaHoopEnv(gym.Env):
@@ -71,15 +73,12 @@ class HulaHoopEnv(gym.Env):
         self.font = None
 
     def _get_obs(self):
-        """Gibt die aktuelle Beobachtung zurück."""
         return np.array([self.hoop_y, self.hoop_y_velocity, self.swing_speed], dtype=np.float32)
 
     def _get_info(self):
-        """Gibt zusätzliche Informationen zurück."""
         return {"swing_speed": self.swing_speed}
 
     def reset(self, seed=None, options=None):
-        """Setzt das Spiel auf einen leicht ZUFÄLLIGEN Anfangszustand zurück."""
         super().reset(seed=seed)
 
         # Startposition des Reifens (+/- 20 Pixel um die Mitte)
@@ -89,7 +88,6 @@ class HulaHoopEnv(gym.Env):
         # Start-Schwunggeschwindigkeit leicht variieren
         self.swing_speed = self.np_random.uniform(7.0, 10.0)
 
-        # Start-Geschwindigkeit auf 0 lassen, um es nicht zu schwer zu machen
         self.hoop_y_velocity = 0.0
         self.current_episode_steps = 0
         self.current_episode_reward = 0.0
@@ -100,7 +98,6 @@ class HulaHoopEnv(gym.Env):
         return self._get_obs(), self._get_info()
 
     def step(self, action):
-        """Führt einen Spielschritt aus und aktualisiert alle HUD-Daten."""
 
         # --- Aktion ausführen ---
         if action == 1:
@@ -138,7 +135,7 @@ class HulaHoopEnv(gym.Env):
                 # Linearer Bonus: 2.0 wenn perfekt im Zentrum, 0 am Rand der Zone.
                 reward = 2.0 * (1 - (distance_to_center / max_distance))
 
-            # Bestrafung für hohe Geschwindigkeit (optional, wie von Ihnen hinzugefügt)
+            # Bestrafung für hohe Geschwindigkeit
             reward -= abs(self.hoop_y_velocity) * 0.1
 
         self.last_action = action
@@ -151,13 +148,12 @@ class HulaHoopEnv(gym.Env):
             self._render_frame()
 
         return self._get_obs(), reward, terminated, False, info
+
     def render(self):
-        """Anzeigen des Spiels """
         if self.render_mode == "human":
             return self._render_frame()
 
     def _render_frame(self):
-        """Enthält die gesamte Zeichen-Logik inkl. neuem HUD."""
         if self.screen is None:
             pygame.init()
             self.screen = pygame.display.set_mode((self.SCREEN_WIDTH, self.SCREEN_HEIGHT))
@@ -166,6 +162,16 @@ class HulaHoopEnv(gym.Env):
             self.font = pygame.font.Font(None, 22)
 
         self.screen.fill(self.BACKGROUND_COLOR)
+        max_distance = 80
+        sweet_spot_center = self.robot_y + self.robot_height / 2
+        sweet_spot_color = (0, 255, 0)  # Grün
+
+        top_y = sweet_spot_center - max_distance
+        bottom_y = sweet_spot_center + max_distance
+
+        pygame.draw.line(self.screen, sweet_spot_color, (0, top_y), (self.SCREEN_WIDTH, top_y), 2)
+        pygame.draw.line(self.screen, sweet_spot_color, (0, bottom_y), (self.SCREEN_WIDTH, bottom_y), 2)
+
         pygame.draw.rect(self.screen, self.ROBOT_COLOR, self.robot_rect)
         pygame.draw.rect(self.screen, self.ROBOT_COLOR, self.robot_head_rect)
         hoop_width = 150 + (self.hoop_y - self.robot_y) * 0.1
@@ -187,17 +193,41 @@ class HulaHoopEnv(gym.Env):
 
         for i, text in enumerate(hud_texts):
             text_surface = self.font.render(text, True, self.WHITE)
-            self.screen.blit(text_surface, (10, 10 + i * 25))  # 25 Pixel Abstand pro Zeile
+            self.screen.blit(text_surface, (10, 10 + i * 25))
 
         pygame.event.pump()
         pygame.display.flip()
         self.clock.tick(self.metadata["render_fps"])
 
     def close(self):
-        """Aufräumen"""
         if self.screen is not None:
             pygame.display.quit()
             pygame.quit()
+
+
+# Eigener Callback, um den Loss zu protokollieren
+class LossLoggingCallback(BaseCallback):
+    def __init__(self, log_path: str, verbose=0):
+        super(LossLoggingCallback, self).__init__(verbose)
+        self.log_path = log_path
+        self.file_handler = None
+
+    def _on_training_start(self):
+        # Erstellt den Ordner, falls er nicht existiert
+        os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+        self.file_handler = open(self.log_path, "w")
+        self.file_handler.write("timesteps,loss\n")
+
+    def _on_step(self) -> bool:
+        if 'train/loss' in self.model.logger.name_to_value:
+            loss = self.model.logger.name_to_value['train/loss']
+            timesteps = self.num_timesteps
+            self.file_handler.write(f"{timesteps},{loss}\n")
+        return True
+
+    def _on_training_end(self):
+        if self.file_handler is not None:
+            self.file_handler.close()
 
 
 if __name__ == '__main__':
@@ -227,11 +257,14 @@ if __name__ == '__main__':
         exploration_final_eps=0.02
     )
 
+    loss_log_path = "./hula_dqn_tensorboard/loss_log.csv"
+    loss_callback = LossLoggingCallback(log_path=loss_log_path)
+
     print("Beginne mit dem Training...")
-    model.learn(total_timesteps=170000, progress_bar=True)
+    model.learn(total_timesteps=170000, progress_bar=True, callback=loss_callback)
 
     model.save("hula_dqn_model")
-    print("Training abgeschlossen. Modell wurde als 'hula_dqn_model.zip' gespeichert.")
+    print(f"Training abgeschlossen. Modell gespeichert und Loss-Werte in '{loss_log_path}' protokolliert.")
 
     train_env.close()
 
@@ -242,7 +275,6 @@ if __name__ == '__main__':
 
     model = DQN.load("hula_dqn_model")
 
-    # Neue Umgebung mit Grafik
     eval_env = HulaHoopEnv(render_mode="human")
 
     n_eval_episodes = 20
